@@ -1,0 +1,11 @@
+README.md
+pyproject.toml
+pck67_pkg/__init__.py
+pck67_pkg/client.py
+pck67_pkg/run.py
+pck67_pkg/test_client.py
+pck67_pkg.egg-info/PKG-INFO
+pck67_pkg.egg-info/SOURCES.txt
+pck67_pkg.egg-info/dependency_links.txt
+pck67_pkg.egg-info/requires.txt
+pck67_pkg.egg-info/top_level.txt
