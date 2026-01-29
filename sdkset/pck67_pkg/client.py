@@ -61,9 +61,47 @@ class TrackingClient:
         return self._request("GET", f"/teams/{team_id}/projects")
     
     # --- Run Methods ---
-    def init_run(self, project_id: int, name: str, config: Dict[str, Any] = None) -> Run:
-        """Initialize a new experiment run"""
-        data = {"name": name, "config": config or {}}
+    def init_run(
+        self, 
+        project_id: int, 
+        name: str, 
+        config: Dict[str, Any] = None,
+        # 🆕 NEW PARAMETERS
+        notes: Optional[str] = None,
+        tags: Optional[List[str]] = None,
+        hostname: Optional[str] = None,
+        os_info: Optional[str] = None,
+        python_version: Optional[str] = None,
+        python_executable: Optional[str] = None,
+        command: Optional[str] = None
+    ) -> Run:
+        """
+        Initialize a new experiment run with W&B-like metadata
+        
+        Args:
+            project_id: Project ID
+            name: Run name
+            config: Configuration dictionary
+            notes: Notes about what makes this run special
+            tags: List of tags (e.g., ["baseline", "experiment"])
+            hostname: Machine hostname
+            os_info: OS information
+            python_version: Python version string
+            python_executable: Path to Python executable
+            command: Command used to start the run
+        """
+        data = {
+            "name": name, 
+            "config": config or {},
+            # 🆕 NEW FIELDS
+            "notes": notes,
+            "tags": tags or [],
+            "hostname": hostname,
+            "os_info": os_info,
+            "python_version": python_version,
+            "python_executable": python_executable,
+            "command": command
+        }
         response = self._request("POST", f"/projects/{project_id}/runs/init", json=data)
         return Run(client=self, run_data=response)
     
@@ -108,6 +146,73 @@ class TrackingClient:
         }
         params = {k: v for k, v in params.items() if v is not None}
         return self._request("GET", f"/runs/{run_id}/metrics/query", params=params)
+    
+    # 🆕 NEW - File Upload Methods
+    def upload_file(
+        self, 
+        run_id: int, 
+        file_path: str, 
+        file_type: Optional[str] = None
+    ) -> Dict[str, Any]:
+        """
+        Upload a file to a run
+        
+        Args:
+            run_id: Run ID
+            file_path: Local path to file
+            file_type: Type of file (config, code, requirements, model, other)
+            
+        Returns:
+            Upload response with file_id
+        """
+        import os
+        if not os.path.exists(file_path):
+            raise FileNotFoundError(f"File not found: {file_path}")
+        
+        filename = os.path.basename(file_path)
+        
+        with open(file_path, 'rb') as f:
+            files = {'file': (filename, f)}
+            params = {'file_type': file_type} if file_type else {}
+            
+            url = f"{self.base_url}/runs/{run_id}/upload-file"
+            response = requests.post(
+                url,
+                headers=self.headers,
+                files=files,
+                params=params
+            )
+            response.raise_for_status()
+            return response.json()
+    
+    def list_run_files(self, run_id: int) -> List[Dict[str, Any]]:
+        """
+        List all files uploaded to a run
+        
+        Args:
+            run_id: Run ID
+            
+        Returns:
+            List of file metadata
+        """
+        return self._request("GET", f"/runs/{run_id}/files")
+    
+    def download_file(self, run_id: int, file_id: int, output_path: str) -> None:
+        """
+        Download a file from a run
+        
+        Args:
+            run_id: Run ID
+            file_id: File ID
+            output_path: Local path to save file
+        """
+        url = f"{self.base_url}/runs/{run_id}/files/{file_id}/download"
+        response = requests.get(url, headers=self.headers, stream=True)
+        response.raise_for_status()
+        
+        with open(output_path, 'wb') as f:
+            for chunk in response.iter_content(chunk_size=8192):
+                f.write(chunk)
     
     # --- Dashboard Methods ---
     def get_dashboard_overview(self) -> Dict[str, Any]:

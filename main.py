@@ -14,7 +14,11 @@ from typing import List, Dict, Any, Optional
 from collections import defaultdict
 
 from fastapi.middleware.cors import CORSMiddleware
-
+from apscheduler.schedulers.background import BackgroundScheduler
+from apscheduler.triggers.interval import IntervalTrigger
+from apscheduler.triggers.cron import CronTrigger
+import atexit
+from background_tasks import cleanup_stale_runs, cleanup_old_audit_logs
 
 app = FastAPI(title="trackingMaster Clone - Phase 3 🔒")
 
@@ -26,6 +30,38 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+# --- Database ---
+Base.metadata.create_all(bind=engine)
+
+# 🆕 NEW - Background Task Scheduler
+scheduler = BackgroundScheduler()
+
+# Run cleanup every hour (checks for runs older than 24 hours)
+scheduler.add_job(
+    func=lambda: cleanup_stale_runs(timeout_hours=24),
+    trigger=IntervalTrigger(hours=1),
+    id='cleanup_stale_runs',
+    name='Cleanup stale running runs',
+    replace_existing=True
+)
+
+# Run audit log cleanup once per day at 3 AM
+scheduler.add_job(
+    func=lambda: cleanup_old_audit_logs(days_to_keep=90),
+    trigger=CronTrigger(hour=3, minute=0),
+    id='cleanup_old_audit_logs',
+    name='Cleanup old audit logs',
+    replace_existing=True
+)
+
+scheduler.start()
+print("[SCHEDULER] Background tasks started")
+print("[SCHEDULER] - Stale run cleanup: Every 1 hour (timeout: 24 hours)")
+print("[SCHEDULER] - Audit log cleanup: Daily at 3 AM (keep: 90 days)")
+
+# Shut down the scheduler when app exits
+atexit.register(lambda: scheduler.shutdown())
 
 # --- Database ---
 Base.metadata.create_all(bind=engine)

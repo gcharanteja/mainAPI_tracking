@@ -20,6 +20,18 @@ class Run:
         self.finished_at = run_data.get("finished_at")
         self.config = run_data.get("config", {})
         self.storage_used_mb = run_data.get("storage_used_mb", 0)
+        
+        # 🆕 NEW FIELDS
+        self.notes = run_data.get("notes")
+        self.tags = run_data.get("tags", [])
+        self.hostname = run_data.get("hostname")
+        self.os_info = run_data.get("os_info")
+        self.python_version = run_data.get("python_version")
+        self.python_executable = run_data.get("python_executable")
+        self.command = run_data.get("command")
+        self.cli_version = run_data.get("cli_version")
+        self.runtime_seconds = run_data.get("runtime_seconds")
+        
         self._raw_data = run_data
     
     def log_metric(self, name: str, value: float, step: int = 0) -> Dict[str, Any]:
@@ -51,13 +63,14 @@ class Run:
     
     def finish(self) -> Dict[str, Any]:
         """
-        Finish this run
+        Finish this run and calculate runtime
         
         Returns:
-            Run finish response
+            Run finish response with runtime_seconds
         """
         response = self.client.finish_run(self.id)
         self.status = "finished"
+        self.runtime_seconds = response.get("runtime_seconds")
         return response
     
     def get_metrics(self) -> List[Dict[str, Any]]:
@@ -117,13 +130,47 @@ class Run:
         """
         return self.client.get_multiplot_visualization(self.id)
     
+    # 🆕 NEW - File Upload Methods
+    def upload_file(self, file_path: str, file_type: Optional[str] = None) -> Dict[str, Any]:
+        """
+        Upload a file to this run
+        
+        Args:
+            file_path: Local path to file
+            file_type: Type of file (config, code, requirements, model, other)
+            
+        Returns:
+            Upload response with file_id
+        """
+        return self.client.upload_file(self.id, file_path, file_type)
+    
+    def list_files(self) -> List[Dict[str, Any]]:
+        """
+        List all files uploaded to this run
+        
+        Returns:
+            List of file metadata
+        """
+        return self.client.list_run_files(self.id)
+    
+    def download_file(self, file_id: int, output_path: str) -> None:
+        """
+        Download a file from this run
+        
+        Args:
+            file_id: File ID
+            output_path: Local path to save file
+        """
+        return self.client.download_file(self.id, file_id, output_path)
+    
     def refresh(self) -> None:
         """Refresh run data from server"""
         updated_run = self.client.get_run(self.id)
         self.__dict__.update(updated_run.__dict__)
     
     def __repr__(self) -> str:
-        return f"Run(id={self.id}, name='{self.name}', status='{self.status}')"
+        return f"Run(id={self.id}, name='{self.name}', status='{self.status}', runtime={self.runtime_seconds}s)"
     
     def __str__(self) -> str:
-        return f"Run {self.id}: {self.name} ({self.status})"
+        runtime_str = f" ({self.runtime_seconds:.1f}s)" if self.runtime_seconds else ""
+        return f"Run {self.id}: {self.name} ({self.status}){runtime_str}"
