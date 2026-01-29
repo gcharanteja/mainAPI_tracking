@@ -1,5 +1,5 @@
-from fastapi import FastAPI, Depends, Header, HTTPException, status, Query, Request
-from fastapi.responses import JSONResponse
+from fastapi import FastAPI, Depends, Header, HTTPException, status, Query, Request, UploadFile, File
+from fastapi.responses import JSONResponse, FileResponse
 from sqlalchemy.orm import Session
 from sqlalchemy import func
 from database import SessionLocal, engine, Base
@@ -8,6 +8,8 @@ import schemas
 from datetime import datetime, timedelta
 import hashlib
 import secrets
+import os
+import shutil
 from typing import List, Dict, Any, Optional
 from collections import defaultdict
 
@@ -266,15 +268,29 @@ def init_run(project_id: int, run_create: schemas.RunCreate, user: models.User =
         import json
         config_str = json.dumps(run_create.config)
     
-    new_run = models.Run(user_id=user.id, project_id=project_id, name=run_create.name, 
-                        config=config_str, status="running")
+    new_run = models.Run(
+        user_id=user.id, 
+        project_id=project_id, 
+        name=run_create.name, 
+        config=config_str, 
+        status="running",
+        # NEW FIELDS
+        notes=run_create.notes,
+        tags=run_create.tags or [],
+        hostname=run_create.hostname,
+        os_info=run_create.os_info,
+        python_version=run_create.python_version,
+        python_executable=run_create.python_executable,
+        command=run_create.command,
+        cli_version="3.0"  # Your API version
+    )
     db.add(new_run)
     db.commit()
     db.refresh(new_run)
     
     ip = request.client.host if request else None
     log_audit(db, user.id, "create", "run", new_run.id, project_id=project_id, run_id=new_run.id,
-              details={"run_name": run_create.name}, ip_address=ip)
+              details={"run_name": run_create.name, "hostname": run_create.hostname}, ip_address=ip)
     
     return new_run
 
@@ -323,17 +339,123 @@ def finish_run(run_id: int, user: models.User = Depends(verify_api_key), db: Ses
     
     run.status = "finished"
     run.finished_at = datetime.utcnow()
+    
+    # NEW - Calculate runtime
+    if run.created_at:
+        runtime = (run.finished_at - run.created_at).total_seconds()
+        run.runtime_seconds = runtime
+    
     db.commit()
     
     ip = request.client.host if request else None
     log_audit(db, user.id, "finish", "run", run_id, run_id=run_id, project_id=run.project_id, ip_address=ip)
     
-    return {"message": f"Run {run_id} finished", "status": run.status}
+    return {
+        "message": f"Run {run_id} finished",
+        "status": run.status,
+        "runtime_seconds": run.runtime_seconds
+    }
 
 @app.get("/runs/{run_id}/metrics")
 def get_run_metrics(run_id: int, user: models.User = Depends(verify_api_key), db: Session = Depends(get_db)):
     metrics = db.query(models.RunMetric).filter(models.RunMetric.run_id == run_id).all()
     return metrics
+
+# --- File Upload Endpoints ---
+@app.post("/runs/{run_id}/upload-file")
+async def upload_file(
+    run_id: int,
+    file: UploadFile = File(...),
+    file_type: Optional[str] = Query(None),
+    user: models.User = Depends(verify_api_key),
+    db: Session = Depends(get_db)
+):
+    """Upload a file to a run (config.yaml, requirements.txt, etc.)"""
+    run = db.query(models.Run).filter(models.Run.id == run_id).first()
+    if not run:
+        raise HTTPException(status_code=404, detail="Run not found")
+    
+    project = db.query(models.Project).filter(models.Project.id == run.project_id).first()
+    check_permission(user, project.team_id, "log_metrics", db)
+    
+    # Create storage directory
+    storage_dir = f"./storage/runs/{run_id}"
+    os.makedirs(storage_dir, exist_ok=True)
+    
+    # Save file
+    file_path = os.path.join(storage_dir, file.filename)
+    with open(file_path, "wb") as buffer:
+        shutil.copyfileobj(file.file, buffer)
+    
+    # Get file size
+    file_size = os.path.getsize(file_path)
+    
+    # Create database record
+    run_file = models.RunFile(
+        run_id=run_id,
+        filename=file.filename,
+        file_path=file_path,
+        file_size_bytes=file_size,
+        file_type=file_type
+    )
+    db.add(run_file)
+    
+    # Update storage
+    run.storage_used_mb += file_size / (1024 * 1024)
+    db.commit()
+    db.refresh(run_file)
+    
+    log_audit(db, user.id, "upload_file", "file", run_file.id, run_id=run_id,
+              details={"filename": file.filename, "size_bytes": file_size})
+    
+    return {
+        "message": "File uploaded successfully",
+        "file_id": run_file.id,
+        "filename": file.filename,
+        "size_bytes": file_size
+    }
+
+
+@app.get("/runs/{run_id}/files")
+def list_run_files(run_id: int, user: models.User = Depends(verify_api_key), db: Session = Depends(get_db)):
+    """List all files uploaded to a run"""
+    files = db.query(models.RunFile).filter(models.RunFile.run_id == run_id).all()
+    return [
+        {
+            "id": f.id,
+            "filename": f.filename,
+            "size_bytes": f.file_size_bytes,
+            "uploaded_at": f.uploaded_at.isoformat(),
+            "file_type": f.file_type
+        }
+        for f in files
+    ]
+
+
+@app.get("/runs/{run_id}/files/{file_id}/download")
+async def download_file(
+    run_id: int,
+    file_id: int,
+    user: models.User = Depends(verify_api_key),
+    db: Session = Depends(get_db)
+):
+    """Download a file from a run"""
+    run_file = db.query(models.RunFile).filter(
+        models.RunFile.id == file_id,
+        models.RunFile.run_id == run_id
+    ).first()
+    
+    if not run_file:
+        raise HTTPException(status_code=404, detail="File not found")
+    
+    if not os.path.exists(run_file.file_path):
+        raise HTTPException(status_code=404, detail="File no longer exists on disk")
+    
+    return FileResponse(
+        path=run_file.file_path,
+        filename=run_file.filename,
+        media_type="application/octet-stream"
+    )
 
 # --- Audit Log Endpoints ---
 @app.get("/teams/{team_id}/audit-logs")

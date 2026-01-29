@@ -88,15 +88,42 @@ class Run(Base):
     project_id = Column(Integer, ForeignKey("projects.id"))
     name = Column(String, nullable=True)
     config = Column(Text, nullable=True)
-    status = Column(String, default="running")  # running, finished, failed
+    status = Column(String, default="running")
     created_at = Column(DateTime, default=datetime.utcnow)
     finished_at = Column(DateTime, nullable=True)
     storage_used_mb = Column(Float, default=0.0)
     
+    # NEW FIELDS - W&B-like metadata
+    notes = Column(Text, nullable=True)  # "What makes this run special?"
+    tags = Column(JSON, default=[])  # ["experiment", "baseline"]
+    hostname = Column(String, nullable=True)  # "charans-MacBook-Air.local"
+    os_info = Column(String, nullable=True)  # "macOS-26.2-arm64"
+    python_version = Column(String, nullable=True)  # "CPython 3.13.8"
+    python_executable = Column(String, nullable=True)  # "/path/to/python"
+    command = Column(Text, nullable=True)  # "python train.py --lr 0.01"
+    cli_version = Column(String, nullable=True)  # Your API version
+    runtime_seconds = Column(Float, nullable=True)  # Calculated duration
+    
     user = relationship("User", back_populates="runs")
     project = relationship("Project", back_populates="runs")
     metrics = relationship("RunMetric", back_populates="run")
+    files = relationship("RunFile", back_populates="run")  # NEW
     audit_logs = relationship("AuditLog", back_populates="run")
+
+
+# NEW MODEL - File uploads
+class RunFile(Base):
+    __tablename__ = "run_files"
+
+    id = Column(Integer, primary_key=True, index=True)
+    run_id = Column(Integer, ForeignKey("runs.id"))
+    filename = Column(String)  # "config.yaml"
+    file_path = Column(String)  # "/storage/run_123/config.yaml"
+    file_size_bytes = Column(Integer)  # 1100
+    uploaded_at = Column(DateTime, default=datetime.utcnow)
+    file_type = Column(String, nullable=True)  # "config", "code", "model"
+    
+    run = relationship("Run", back_populates="files")
 
 class RunMetric(Base):
     __tablename__ = "run_metrics"

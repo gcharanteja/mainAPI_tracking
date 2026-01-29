@@ -1,6 +1,6 @@
 from pydantic import BaseModel
 from datetime import datetime
-from typing import Optional, List, Dict, Any , Union
+from typing import Optional, List, Dict, Any, Union
 
 # --- User Schemas ---
 class UserCreate(BaseModel):
@@ -57,6 +57,13 @@ class ProjectResponse(BaseModel):
 class RunCreate(BaseModel):
     name: Optional[str] = None
     config: Optional[Dict[str, Any]] = None
+    notes: Optional[str] = None  # NEW
+    tags: Optional[List[str]] = []  # NEW
+    hostname: Optional[str] = None  # NEW
+    os_info: Optional[str] = None  # NEW
+    python_version: Optional[str] = None  # NEW
+    python_executable: Optional[str] = None  # NEW
+    command: Optional[str] = None  # NEW
 
 class RunResponse(BaseModel):
     id: int
@@ -66,7 +73,36 @@ class RunResponse(BaseModel):
     config: Optional[str]
     status: str
     created_at: datetime
+    finished_at: Optional[datetime]  # NEW
     storage_used_mb: float
+    
+    # NEW FIELDS
+    notes: Optional[str]
+    tags: Optional[List[str]]
+    hostname: Optional[str]
+    os_info: Optional[str]
+    python_version: Optional[str]
+    python_executable: Optional[str]
+    command: Optional[str]
+    cli_version: Optional[str]
+    runtime_seconds: Optional[float]
+
+    class Config:
+        from_attributes = True
+
+# NEW - File upload schema
+class RunFileUpload(BaseModel):
+    filename: str
+    file_type: Optional[str] = None  # "config", "code", "requirements"
+
+
+class RunFileResponse(BaseModel):
+    id: int
+    run_id: int
+    filename: str
+    file_size_bytes: int
+    uploaded_at: datetime
+    file_type: Optional[str]
 
     class Config:
         from_attributes = True
