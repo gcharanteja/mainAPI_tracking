@@ -48,7 +48,7 @@ def setup_tracking_logger(
         run_id: Run ID to log to
         name: Logger name
         level: Logging level (default: INFO)
-        console_output: Whether to also log to console (default: True)
+        console_output: Whether to also log to console (default: Truee)
 
     Returns:
         Configured logger instance

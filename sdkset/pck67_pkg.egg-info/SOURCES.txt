@@ -1,9 +1,10 @@
 README.md
 pyproject.toml
+setup.py
 pck67_pkg/__init__.py
+pck67_pkg/cli.py
 pck67_pkg/client.py
 pck67_pkg/run.py
-pck67_pkg/test_client.py
 pck67_pkg.egg-info/PKG-INFO
 pck67_pkg.egg-info/SOURCES.txt
 pck67_pkg.egg-info/dependency_links.txt
